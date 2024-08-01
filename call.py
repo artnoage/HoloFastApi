@@ -31,7 +31,7 @@ files = {
 }
 data = {
     'agent_number': 4,  # Example agent number
-    'gemini_api_key': "AIzaSyBzw4vQsyQFcpA9hr4ncge4BYZW0CcT_ng"
+    'gemini_api_key': "***************"
 }
 
 # Make the API call
