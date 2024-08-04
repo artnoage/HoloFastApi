@@ -35,12 +35,11 @@ class AnalysisResponse(BaseModel):
 
 @app.post("/talk_to_agents/", response_model=AnalysisResponse)
 async def analyze_audio(
-    audio_file: UploadFile = File(...),
+    text: str=Form(...),
     agent_number: int = Form(...),
     history_file: UploadFile = File(...),
     gemini_api_key: str = Form(...)
 ):
-    temp_audio_path = None
     try:
         # Validate agent number
         if agent_number not in range(5):
@@ -50,30 +49,13 @@ async def analyze_audio(
         genai.configure(api_key=gemini_api_key)
         logger.info("Genai configured with provided API key")
 
-        # Save audio file temporarily
-        temp_audio_path = tempfile.mktemp(suffix=".wav")
-        with open(temp_audio_path, "wb") as temp_file:
-            content = await audio_file.read()
-            temp_file.write(content)
-        logger.info(f"Audio file saved temporarily at {temp_audio_path}")
 
         # Load history from base64 encoded pickle
         history_base64 = await history_file.read()
         history = pickle.loads(base64.b64decode(history_base64))
         logger.info("History loaded from base64 encoded pickle data")
         logger.info(history)
-
-        # Process audio with SST model
-        your_file = genai.upload_file(path=temp_audio_path)
-        SST_model = genai.GenerativeModel('gemini-1.5-flash', system_instruction=STT_prompt, 
-                                          generation_config=genai.GenerationConfig(
-                                              response_schema=Narration,
-                                              response_mime_type="application/json",
-                                              temperature=0
-                                          ))
-        first_response = SST_model.generate_content(your_file)
-        logger.info("Audio transcribed and analyzed")
-        logger.info(first_response.text)
+  
 
         # Select agent and process response
         agent_prompt = agent_prompts[agent_number]
@@ -83,36 +65,32 @@ async def analyze_audio(
                                                 response_mime_type="application/json",
                                                 temperature=0.1
                                             ))
+        
         agent_chat = agent_model.start_chat(history=history[agent_number])
         logger.info(f"Agent {agent_number} chat started with history")
-        agent_response = agent_chat.send_message(first_response.text)
+        agent_response = json.loads(agent_chat.send_message(text).text)['transcription']
+        logger.info(agent_response)
+        agent_chat.history[-1].parts[0].text = agent_response
         logger.info(f"Agent {agent_number} response generated")
 
         # Update history
         history[agent_number] = agent_chat.history
         logger.info(agent_chat.history)
         # Prepare response
-        narration = json.loads(agent_chat.history[-1].parts[0].text)["transcription"]
         
         # Pickle and encode updated history
         updated_history_pickle = pickle.dumps(history)
         updated_history_base64 = base64.b64encode(updated_history_pickle).decode('utf-8')
         
         return AnalysisResponse(
-            narration=narration,
+            narration=agent_response,
             updated_history=updated_history_base64,
             status="success"
         )
 
     except Exception as e:
-        logger.error(f"Error processing audio: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
-    
-    finally:
-        # Clean up temporary file
-        if temp_audio_path and os.path.exists(temp_audio_path):
-            os.remove(temp_audio_path)
-            logger.info(f"Temporary audio file removed: {temp_audio_path}")
+        logger.error(f"Error processing: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error processing: {str(e)}")
     
 if __name__ == "__main__":
     import uvicorn

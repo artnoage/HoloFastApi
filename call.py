@@ -1,4 +1,3 @@
-import base64
 import requests
 from pydub import AudioSegment
 import io
@@ -24,14 +23,14 @@ mp3_file_path = "Hello.mp3"
 wav_bytes = mp3_to_wav_bytes(mp3_file_path)
 
 # Prepare the API call
-url = "http://127.0.0.1:8000/talk_to_agents/"
+url = "https://fastapi.metaskepsis.com/talk_to_agents/"
 files = {
     'audio_file': ('audio.wav', wav_bytes, 'audio/wav'),
     'history_file': ('history.pickle', history_base64, 'application/octet-stream')
 }
 data = {
     'agent_number': 4,  # Example agent number
-    'gemini_api_key': "***************"
+    'gemini_api_key': "AIzaSyBzw4vQsyQFcpA9hr4ncge4BYZW0CcT_ng"
 }
 
 # Make the API call
