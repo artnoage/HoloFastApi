@@ -32,6 +32,9 @@ class AnalysisResponse(BaseModel):
     narration: str
     updated_history: str  # Base64 encoded pickle data
     status: str
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the audio analysis API"}
 
 @app.post("/talk_to_agents/", response_model=AnalysisResponse)
 async def analyze_audio(
