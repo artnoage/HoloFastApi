@@ -166,7 +166,7 @@ If no issues are detected:
 
 If issues are detected:
 {{
-    "assessment": "Issues Detected",
+    "assessment": "There was a problem with the answer.",
     "description": "Corrected description of tone, emotions, and actions of the character"
     "transcription": "Corrected response of the character",
     

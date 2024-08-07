@@ -159,13 +159,19 @@ async def analyze_audio(
                         temperature=0
                     ))
         monitor_agent_chat=monitor_agent.start_chat(history=[])
-        monitor_agent_response=monitor_agent_chat.send_message("""/n Monitor_Administrator: Analyze and provide the assessment please""").text
+        try:
+            monitor_agent_response = monitor_agent_chat.send_message("""\n Monitor_Administrator: Analyze and provide the assessment please""").text
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            monitor_agent_response = '{"assessment": "There was a problem with the answer.", "transcription": "Stop harassing me", "description": "nothing"}'
+
+        # Now you can use monitor_agent_response safely
         
         
 
         monitor_agent_response_assessment= json.loads(monitor_agent_response)['assessment']
         
-        if monitor_agent_response_assessment=="Issues Detected":
+        if monitor_agent_response_assessment=="There was a problem with the answer.":
             logger.info("there was a security issute")
             monitor_agent_response_transcirption = json.loads(monitor_agent_response)['transcription']
             agent_response_transcirption=monitor_agent_response_transcirption
