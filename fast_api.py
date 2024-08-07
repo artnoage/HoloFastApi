@@ -151,7 +151,7 @@ async def analyze_audio(
             "latest_response": agent_response,
             "conversation_history": recent_conversation
         }
-        monitor_agent_prompt = custom_format(monitor_agent_prompt, monitor_data)                                                     
+        monitor_agent_prompt = custom_format_double(monitor_agent_prompt, monitor_data)                                                     
         monitor_agent=genai.GenerativeModel('gemini-1.5-flash', system_instruction=monitor_agent_prompt,
                     generation_config=genai.GenerationConfig(
                         response_schema=Monitoring,
@@ -160,13 +160,14 @@ async def analyze_audio(
                     ))
         monitor_agent_chat=monitor_agent.start_chat(history=[])
         monitor_agent_response=monitor_agent_chat.send_message("""/n Monitor_Administrator: Analyze and provide the assessment please""").text
-        monitor_agent_response_transcirption = json.loads(monitor_agent_response)['transcription']
-        monitor_agent_response_assesment= json.loads(monitor_agent_response)['assessment']
-        logger.info("assesment is ", monitor_agent_response_assesment)
+        
+        
 
-
-        if monitor_agent_response_assesment=="Issues Detected":
+        monitor_agent_response_assessment= json.loads(monitor_agent_response)['assessment']
+        
+        if monitor_agent_response_assessment=="Issues Detected":
             logger.info("there was a security issute")
+            monitor_agent_response_transcirption = json.loads(monitor_agent_response)['transcription']
             agent_response_transcirption=monitor_agent_response_transcirption
         agent_chat.history[-1].parts[0].text = agent_response_transcirption
         logger.info(f"Agent {agent_number} response generated")
@@ -181,7 +182,7 @@ async def analyze_audio(
         updated_history_base64 = base64.b64encode(updated_history_pickle).decode('utf-8')
         
         return AnalysisResponse(
-            narration=agent_response,
+            narration=agent_response_transcirption,
             updated_history=updated_history_base64,
             status="success"
         )

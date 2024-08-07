@@ -1,7 +1,8 @@
 from backgrounds import *
 import re
 
-def custom_format(template, data_dict):
+
+def custom_format_double(template, data_dict):
     def replace_placeholder(match):
         key = match.group(1)
         if key in data_dict:
@@ -14,6 +15,27 @@ def custom_format(template, data_dict):
     # Use regex to find placeholders, but not double-braced sections
     pattern = r'(?<!\{)\{([^{}]+)\}(?!\})'
     return re.sub(pattern, replace_placeholder, template)
+
+def custom_format_single(template, data_dict):
+    def replace_placeholder(match):
+        key = match.group(1)
+        if key in data_dict:
+            value = data_dict[key]
+            if isinstance(value, list):
+                return format_list(value)
+            return str(value)
+        return '{' + key + '}'  # Return the key wrapped in single braces if not in dict
+
+    def replace_double_braces(match):
+        return '{' + match.group(1) + '}'
+
+    # First, replace double braces with single braces
+    template = re.sub(r'\{\{([^{}]+)\}\}', replace_double_braces, template)
+    
+    # Then, replace placeholders
+    pattern = r'\{([^{}]+)\}'
+    return re.sub(pattern, replace_placeholder, template)
+
 
 def format_list(lst):
     # Implement this function based on how you want to format lists
@@ -163,14 +185,14 @@ Monitor_Administrator :And here is the  character agent's latest response->/n
 {latest_response}"""
 
 
-Zara_prompt = custom_format(system_prompt, Zara)
-John_prompt = custom_format(system_prompt, John)
-Karlah_prompt = custom_format(system_prompt, Karlah)
-Amara_prompt = custom_format(system_prompt, Amara)
-Raphael_prompt = custom_format(system_prompt, Raphael)
+Zara_prompt = custom_format_double(system_prompt, Zara)
+John_prompt = custom_format_double(system_prompt, John)
+Karlah_prompt = custom_format_double(system_prompt, Karlah)
+Amara_prompt = custom_format_double(system_prompt, Amara)
+Raphael_prompt = custom_format_double(system_prompt, Raphael)
 
-monitor_Zara_prompt = custom_format(monitor_system_prompt, Zara)
-monitor_John_prompt = custom_format(monitor_system_prompt, John)
-monitor_Karlah_prompt = custom_format(monitor_system_prompt, Karlah)
-monitor_Amara_prompt = custom_format(monitor_system_prompt, Amara)
-monitor_Raphael_prompt = custom_format(monitor_system_prompt, Raphael)
+monitor_Zara_prompt = custom_format_double(monitor_system_prompt, Zara)
+monitor_John_prompt = custom_format_double(monitor_system_prompt, John)
+monitor_Karlah_prompt = custom_format_double(monitor_system_prompt, Karlah)
+monitor_Amara_prompt = custom_format_double(monitor_system_prompt, Amara)
+monitor_Raphael_prompt = custom_format_double(monitor_system_prompt, Raphael)
