@@ -5,6 +5,13 @@ import logging
 import google.generativeai as genai
 import pickle
 import json
+import time
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form
+from pydantic import BaseModel
+import google.generativeai as genai
+import logging
+import speech_recognition as sr  # For Google API transcription
+
 import base64
 from pydantic import BaseModel
 import requests
@@ -96,6 +103,76 @@ async def check_api_key(api_key_data: APIKeyCheck):
     except Exception as e:
         logger.error(f"API key validation failed: {str(e)}")
         raise HTTPException(status_code=401, detail=f"Invalid API key: {str(e)}")
+
+
+class TranscriptionResponse(BaseModel):
+    transcription: str
+    processing_time: float
+
+### Method 1: Transcribe Using Google's SpeechRecognition
+@app.post("/transcribe_google/", response_model=TranscriptionResponse)
+async def transcribe_google(audio_file: UploadFile = File(...)):
+    start_time = time.time()
+    try:
+        # Step 1: Convert Audio to Text using Google's API
+        recognizer = sr.Recognizer()
+        audio_data = sr.AudioFile(await audio_file.read())
+
+        with audio_data as source:
+            audio = recognizer.record(source)
+            transcription_text = recognizer.recognize_google(audio)
+        
+        # Measure total processing time
+        end_time = time.time()
+        processing_time = end_time - start_time
+        logger.info(f"Google API transcription completed in {processing_time:.2f} seconds")
+
+        return TranscriptionResponse(transcription=transcription_text, processing_time=processing_time)
+
+    except Exception as e:
+        logger.error(f"Error during Google API transcription: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error during Google API transcription: {str(e)}")
+
+### Method 2: Transcribe Using Gemini API
+@app.post("/transcribe_basic/", response_model=TranscriptionResponse)
+async def transcribe_basic(
+    gemini_api_key: str = Form(...),
+    audio_file: UploadFile = File(...)
+):
+    start_time = time.time()
+    try:
+        # Configure the Gemini API with the provided API key
+        genai.configure(api_key=gemini_api_key)
+        logger.info("Genai configured with provided API key")
+
+        # Read the audio file content
+        audio_content = await audio_file.read()
+
+        # Upload the audio file to Gemini
+        upload_start_time = time.time()
+        file_response = genai.upload_file(audio_file.filename, content=audio_content)
+        logger.info(f"Audio file uploaded in {time.time() - upload_start_time:.2f} seconds")
+
+        # Get the URI of the uploaded file
+        audio_uri = file_response.uri
+
+        # Create a generative model and request transcription
+        model = genai.GenerativeModel("models/gemini-1.5-flash")
+        response = model.generate_content([audio_uri, "Transcribe this audio."])
+
+        # Extract the transcription from the response
+        transcription_text = response.text
+
+        # Measure total processing time
+        end_time = time.time()
+        processing_time = end_time - start_time
+        logger.info(f"Gemini API transcription completed in {processing_time:.2f} seconds")
+
+        return TranscriptionResponse(transcription=transcription_text, processing_time=processing_time)
+
+    except Exception as e:
+        logger.error(f"Error during Gemini API transcription: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error during Gemini API transcription: {str(e)}")
 
 @app.post("/talk_to_agents/", response_model=AnalysisResponse)
 async def analyze_audio(
