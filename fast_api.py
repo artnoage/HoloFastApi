@@ -11,7 +11,7 @@ from pydantic import BaseModel
 import google.generativeai as genai
 import logging
 import speech_recognition as sr  # For Google API transcription
-
+import google.api_core.exceptions
 import base64
 from pydantic import BaseModel
 import requests
@@ -79,27 +79,21 @@ async def check_api_key(api_key_data: APIKeyCheck):
     gemini_api_key = api_key_data.gemini_api_key
     logger.info("Received request to check API key")
     
-    # Check server connectivity
     try:
-        response = requests.get(GOOGLE_AI_ENDPOINT, timeout=5)
-        logger.info(f"Server responded with status code: {response.status_code}")
-    except requests.RequestException as e:
-        logger.error(f"Failed to connect to server: {str(e)}")
-        raise HTTPException(status_code=500, detail="Unable to connect to Google AI server")
-
-    # Check API key validity
-    try:
-        logger.debug("Configuring genai with provided API key")
         genai.configure(api_key=gemini_api_key)
-        
-        logger.debug("Attempting to create a GenerativeModel")
-        model = genai.GenerativeModel('gemini-1.5-pro')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
         # Attempt a simple operation to verify the key
         model.generate_content("Test")
         
         logger.info("API key validation successful")
         return {"status": "valid", "message": "API key is valid"}
+    except google.api_core.exceptions.ResourceExhausted as e:
+        logger.error(f"Quota exceeded: {str(e)}")
+        raise HTTPException(status_code=429, detail="API quota exceeded. Please try again later.")
+    except google.api_core.exceptions.PermissionDenied as e:
+        logger.error(f"Permission denied: {str(e)}")
+        raise HTTPException(status_code=403, detail="Permission denied. Please check your API key.")
     except Exception as e:
         logger.error(f"API key validation failed: {str(e)}")
         raise HTTPException(status_code=401, detail=f"Invalid API key: {str(e)}")
