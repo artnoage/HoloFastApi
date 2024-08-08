@@ -9,13 +9,12 @@ import time
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from pydantic import BaseModel
 import google.generativeai as genai
-import logging
 import speech_recognition as sr  # For Google API transcription
 import google.api_core.exceptions
 import base64
 from pydantic import BaseModel
-import requests
-
+import os
+import tempfile
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -103,70 +102,98 @@ class TranscriptionResponse(BaseModel):
     transcription: str
     processing_time: float
 
-### Method 1: Transcribe Using Google's SpeechRecognition
-@app.post("/transcribe_google/", response_model=TranscriptionResponse)
-async def transcribe_google(audio_file: UploadFile = File(...)):
-    start_time = time.time()
-    try:
-        # Step 1: Convert Audio to Text using Google's API
-        recognizer = sr.Recognizer()
-        audio_data = sr.AudioFile(await audio_file.read())
-
-        with audio_data as source:
-            audio = recognizer.record(source)
-            transcription_text = recognizer.recognize_google(audio)
-        
-        # Measure total processing time
-        end_time = time.time()
-        processing_time = end_time - start_time
-        logger.info(f"Google API transcription completed in {processing_time:.2f} seconds")
-
-        return TranscriptionResponse(transcription=transcription_text, processing_time=processing_time)
-
-    except Exception as e:
-        logger.error(f"Error during Google API transcription: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error during Google API transcription: {str(e)}")
-
-### Method 2: Transcribe Using Gemini API
-@app.post("/transcribe_basic/", response_model=TranscriptionResponse)
-async def transcribe_basic(
-    gemini_api_key: str = Form(...),
-    audio_file: UploadFile = File(...)
+@app.post("/speak_to_agents/", response_model=AnalysisResponse)
+async def speak_to_agents(
+    audio_file: UploadFile = File(...),
+    agent_number: int = Form(...),
+    history_file: UploadFile = File(...),
+    gemini_api_key: str = Form(...)
 ):
-    start_time = time.time()
     try:
-        # Configure the Gemini API with the provided API key
+        # Step 1: Transcribe audio using Gemini API (similar to transcribe_basic)
         genai.configure(api_key=gemini_api_key)
         logger.info("Genai configured with provided API key")
 
-        # Read the audio file content
         audio_content = await audio_file.read()
-
-        # Upload the audio file to Gemini
-        upload_start_time = time.time()
         file_response = genai.upload_file(audio_file.filename, content=audio_content)
-        logger.info(f"Audio file uploaded in {time.time() - upload_start_time:.2f} seconds")
-
-        # Get the URI of the uploaded file
         audio_uri = file_response.uri
 
-        # Create a generative model and request transcription
         model = genai.GenerativeModel("models/gemini-1.5-flash")
         response = model.generate_content([audio_uri, "Transcribe this audio."])
+        transcribed_text = response.text
+        logger.info(f"Audio transcribed: {transcribed_text[:50]}...")  # Log first 50 chars
 
-        # Extract the transcription from the response
-        transcription_text = response.text
+        # Step 2: Process transcribed text with AI agents (similar to talk_to_agents)
+        if agent_number not in range(5):
+            raise HTTPException(status_code=400, detail="Invalid agent number")
 
-        # Measure total processing time
-        end_time = time.time()
-        processing_time = end_time - start_time
-        logger.info(f"Gemini API transcription completed in {processing_time:.2f} seconds")
+        history_base64 = await history_file.read()
+        history = pickle.loads(base64.b64decode(history_base64))
+        logger.info("History loaded from base64 encoded pickle data")
 
-        return TranscriptionResponse(transcription=transcription_text, processing_time=processing_time)
+        agent_prompt = agent_prompts[agent_number]
+        agent = genai.GenerativeModel('gemini-1.5-flash', system_instruction=agent_prompt,
+                                      generation_config=genai.GenerationConfig(
+                                          response_schema=Narration,
+                                          response_mime_type="application/json",
+                                          temperature=0.1
+                                      ))
+
+        agent_chat = agent.start_chat(history=history[agent_number])
+        logger.info(f"Agent {agent_number} chat started with history")
+
+        agent_response = agent_chat.send_message(transcribed_text).text
+        recent_conversation = format_recent_history(agent_chat.history)
+
+        agent_response_transcription = json.loads(agent_response)['transcription']
+
+        # Monitor agent processing
+        monitor_agent_prompt = monitor_agent_prompts[agent_number]
+        monitor_data = {
+            "latest_response": agent_response,
+            "conversation_history": recent_conversation
+        }
+        monitor_agent_prompt = custom_format_double(monitor_agent_prompt, monitor_data)
+        monitor_agent = genai.GenerativeModel('gemini-1.5-flash', system_instruction=monitor_agent_prompt,
+                                              generation_config=genai.GenerationConfig(
+                                                  response_schema=Monitoring,
+                                                  response_mime_type="application/json",
+                                                  temperature=0
+                                              ))
+        monitor_agent_chat = monitor_agent.start_chat(history=[])
+        
+        try:
+            monitor_agent_response = monitor_agent_chat.send_message("""\n Monitor_Administrator: Analyze and provide the assessment please""").text
+        except Exception as e:
+            logger.error(f"Monitor agent error: {e}")
+            monitor_agent_response = '{"assessment": "There was a problem with the answer.", "transcription": "Stop harassing me", "description": "nothing"}'
+
+        monitor_agent_response_assessment = json.loads(monitor_agent_response)['assessment']
+
+        if monitor_agent_response_assessment == "There was a problem with the answer.":
+            logger.info("There was a security issue")
+            monitor_agent_response_transcription = json.loads(monitor_agent_response)['transcription']
+            agent_response_transcription = monitor_agent_response_transcription
+
+        agent_chat.history[-1].parts[0].text = agent_response_transcription
+        logger.info(f"Agent {agent_number} response generated")
+
+        # Update history
+        history[agent_number] = agent_chat.history
+        
+        # Prepare response
+        updated_history_pickle = pickle.dumps(history)
+        updated_history_base64 = base64.b64encode(updated_history_pickle).decode('utf-8')
+
+        return AnalysisResponse(
+            narration=agent_response_transcription,
+            updated_history=updated_history_base64,
+            status="success"
+        )
 
     except Exception as e:
-        logger.error(f"Error during Gemini API transcription: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error during Gemini API transcription: {str(e)}")
+        logger.error(f"Error processing: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error processing: {str(e)}")
 
 @app.post("/talk_to_agents/", response_model=AnalysisResponse)
 async def analyze_audio(
