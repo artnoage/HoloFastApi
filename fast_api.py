@@ -12,12 +12,12 @@ import numpy as np
 from pydub import AudioSegment
 from datetime import datetime
 from pydantic import BaseModel
-
+import google.api_core
 # Import your prompt configurations
 from prompts import *
 
 # Configuration
-DEBUG_MODE = True  # Set to False in production
+DEBUG_MODE = False  # Set to False in production
 DEBUG_AUDIO_DIR = "./"  # Change this to your preferred debug directory
 MAX_DEBUG_FILES = 100  # Maximum number of debug files to keep
 SAMPLE_RATE = 22050  # Make sure this matches your client-side recording sample rate
@@ -57,6 +57,9 @@ class AnalysisResponse(BaseModel):
     narration: str
     updated_history: str  # Base64 encoded pickle data
     status: str
+
+class APIKeyCheck(BaseModel):
+    gemini_api_key: str
 
 def format_recent_history(history, num_exchanges=2):
     recent_history = history[-(num_exchanges*2 + 1):]
@@ -114,6 +117,33 @@ def process_audio(audio_data: bytes, format: str = 'wav'):
 @app.get("/")
 async def root():
     return {"message": "Welcome to the audio analysis API"}
+
+GOOGLE_AI_ENDPOINT = "https://generativelanguage.googleapis.com/v1/models"
+
+
+@app.post("/check_api_key/")
+async def check_api_key(api_key_data: APIKeyCheck):
+    gemini_api_key = api_key_data.gemini_api_key
+    logger.info("Received request to check API key")
+    
+    try:
+        genai.configure(api_key=gemini_api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Attempt a simple operation to verify the key
+        model.generate_content("Test")
+        
+        logger.info("API key validation successful")
+        return {"status": "valid", "message": "API key is valid"}
+    except google.api_core.exceptions.ResourceExhausted as e:
+        logger.error(f"Quota exceeded: {str(e)}")
+        raise HTTPException(status_code=429, detail="API quota exceeded. Please try again later.")
+    except google.api_core.exceptions.PermissionDenied as e:
+        logger.error(f"Permission denied: {str(e)}")
+        raise HTTPException(status_code=403, detail="Permission denied. Please check your API key.")
+    except Exception as e:
+        logger.error(f"API key validation failed: {str(e)}")
+        raise HTTPException(status_code=401, detail=f"Invalid API key: {str(e)}")
 
 @app.post("/speak_to_agents/", response_model=AnalysisResponse)
 async def speak_to_agents(
